@@ -52,7 +52,7 @@ void setup() {
   lcd.begin (16, 2);
 
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(SUPEr_BUZZER_PIN, OUTPUT);
+  pinMode(SUPER_BUZZER_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
   pinMode(WIRE1_PIN, INPUT_PULLUP);
   pinMode(WIRE2_PIN, INPUT_PULLUP);
@@ -118,7 +118,7 @@ void configSystem() {
 
 void loop() {
   char key = keypad.getKey();
-  if (key != NO_KEY && passPosition < PASS_SIZE) {
+  if (key != NO_KEY && passPosition < PASS_SIZE && checkRightWires()) {
     pass[passPosition] = key;
 
     if (isFinished()) {
@@ -134,7 +134,9 @@ void loop() {
       passPosition++;
     }
 
-    updatePasswordScreen();
+    if (isRunning) {
+      updatePasswordScreen();
+    }
 
     delay(200);
   }
@@ -165,7 +167,7 @@ void loop() {
     lastMillis = millis();
   }
 
-  checkWires();
+  checkWrongWires();
   handleBuzzer();
 
   if (DEBUG) {
@@ -194,7 +196,7 @@ void beep(int delayTime) {
   buzzerTime = delayTime;
 }
 
-void checkWires() {
+void checkWrongWires() {
   int wrongWire = 0;
   wrongWire += checkWrongWire(WIRE1_PIN, 0);
   wrongWire += checkWrongWire(WIRE2_PIN, 1);
@@ -210,8 +212,30 @@ void checkWires() {
   }
 }
 
+boolean checkRightWires() {
+  int rightWire = 0;
+  rightWire += checkRightWire(WIRE1_PIN, 0);
+  rightWire += checkRightWire(WIRE2_PIN, 1);
+  rightWire += checkRightWire(WIRE3_PIN, 2);
+  rightWire += checkRightWire(WIRE4_PIN, 3);
+
+  if (rightWire == 2) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 int checkWrongWire(int port, int wire) {
   if (digitalRead(port) > 0 && wire1Selected != wire && wire2Selected != wire) {
+    return 1;
+  }
+
+  return 0;
+}
+
+int checkRightWire(int port, int wire) {
+  if (digitalRead(port) > 0 && (wire1Selected == wire || wire2Selected == wire)) {
     return 1;
   }
 
@@ -283,17 +307,22 @@ void resetPassword() {
 }
 
 void updatePasswordScreen() {
-  lcd.setCursor(0, 1);
-  lcd.print("Senha:");
+  if (checkRightWires()) {
+    lcd.setCursor(0, 1);
+    lcd.print("Senha:");
 
-  int offset = 7;
-  for (int i = 0; i < PASS_SIZE; i++) {
-    lcd.setCursor(i + offset, 1);
-    if (passPosition > i) {
-      lcd.print("*");
-    } else {
-      lcd.print("-");
+    int offset = 7;
+    for (int i = 0; i < PASS_SIZE; i++) {
+      lcd.setCursor(i + offset, 1);
+      if (passPosition > i) {
+        lcd.print("*");
+      } else {
+        lcd.print("-");
+      }
     }
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print("           ");
   }
 }
 
