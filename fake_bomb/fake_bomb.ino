@@ -19,6 +19,9 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 #define PASS_SIZE 6
 #define MAX_COUNTER 14400.0 // 4 horas
 #define BUZZER_PIN 13
+#define SUPER_BUZZER_PIN 10
+#define ONE_SECOND 1000
+#define CONFIG_TIME 30000
 #define LED_PIN 12
 #define POT_PIN A0
 #define WIRE1_PIN 11
@@ -31,56 +34,64 @@ LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 char pass[PASS_SIZE] = "";
 long selectedCounter = 100000;
 long counter = 0;
-int counterSpeed = 1;
+int counterTime = 1000;
 long lastMillis = 0;
 long timerResult = 0;
 int passPosition = 0;
-String rightPass = ""
+String rightPass = "";
+long lastBuzzerTime = 0;
+int buzzerTime = 0;
 
-                   int wire1Selected = -1;
+int wire1Selected = -1;
 int wire2Selected = -1;
 
 boolean isRunning = true;
 
 void setup() {
   Serial.begin(9600);
-
-  generateWiresSelected();
-
   lcd.begin (16, 2);
 
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(SUPEr_BUZZER_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
-  pinMode(WIRE1_PIN, INPUT);
-  pinMode(WIRE2_PIN, INPUT);
-  pinMode(WIRE3_PIN, INPUT);
-  pinMode(WIRE4_PIN, INPUT);
+  pinMode(WIRE1_PIN, INPUT_PULLUP);
+  pinMode(WIRE2_PIN, INPUT_PULLUP);
+  pinMode(WIRE3_PIN, INPUT_PULLUP);
+  pinMode(WIRE4_PIN, INPUT_PULLUP);
 
   lastMillis = 99999;
 
   resetPassword();
 
   configSystem();
+
+  generateWiresSelected();
 }
 
 void configSystem() {
+  beep(500);
+
   lcd.setCursor(0, 1);
   lcd.print("tempo?");
 
-  while (millis() < 30000) {
+  while (millis() < CONFIG_TIME) {
     float value = analogRead(POT_PIN);
     selectedCounter = (value / 1024) * MAX_COUNTER;
 
     delay(100);
 
     updateTimer();
+
+    handleBuzzer();
   }
+
+  beep(500);
 
   lcd.setCursor(0, 1);
   lcd.print("senha?");
 
   int passPos = 0;
-  while (millis() < 30000) {
+  while (millis() - CONFIG_TIME < CONFIG_TIME) {
     char key = keypad.getKey();
     if (key != NO_KEY && passPos < PASS_SIZE) {
       lcd.setCursor(7 + passPos, 1);
@@ -92,11 +103,17 @@ void configSystem() {
 
       delay(200);
     }
+
+    handleBuzzer();
+  }
+
+  if (passPos == 0) {
+    rightPass = "223344";
   }
 
   Serial.println(rightPass);
 
-  beep(1000);
+  beep(2000);
 }
 
 void loop() {
@@ -106,6 +123,7 @@ void loop() {
 
     if (isFinished()) {
       if (isPasswordCorrect()) {
+        bombSolved();
         finishTimer();
       } else {
         beep(1000);
@@ -121,10 +139,10 @@ void loop() {
     delay(200);
   }
 
-  if (millis() - lastMillis > 1000 && isRunning) {
+  if (millis() - lastMillis > counterTime && isRunning) {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 
-    counter += counterSpeed;
+    counter += 1;
 
     lcd.clear();
 
@@ -132,21 +150,25 @@ void loop() {
     updateTimer();
 
     if (timerResult < 10 && timerResult >= 0) {
-      digitalWrite(BUZZER_PIN, !digitalRead(BUZZER_PIN));
-    } else {
-      digitalWrite(BUZZER_PIN, LOW);
+      beep(counterTime / 2);
+    }
+
+    if (counterTime < ONE_SECOND) {
+      beep(counterTime / 2);
     }
 
     if (timerResult == 0) {
-      isRunning = false;
+      bombExploded();
+      finishTimer();
     }
 
     lastMillis = millis();
   }
 
   checkWires();
+  handleBuzzer();
 
-  if (!DEBUG) {
+  if (DEBUG) {
     Serial.print(digitalRead(WIRE1_PIN));
     Serial.print(" ");
     Serial.print(digitalRead(WIRE2_PIN));
@@ -157,10 +179,19 @@ void loop() {
   }
 }
 
+void handleBuzzer() {
+  if (millis() - lastBuzzerTime > buzzerTime && isRunning) {
+    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(SUPER_BUZZER_PIN, LOW);
+  }
+}
+
 void beep(int delayTime) {
+  digitalWrite(SUPER_BUZZER_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
-  delay(1000);
-  digitalWrite(BUZZER_PIN, LOW);
+
+  lastBuzzerTime = millis();
+  buzzerTime = delayTime;
 }
 
 void checkWires() {
@@ -170,8 +201,12 @@ void checkWires() {
   wrongWire += checkWrongWire(WIRE3_PIN, 2);
   wrongWire += checkWrongWire(WIRE4_PIN, 3);
 
-  if (wrongWire > 0) {
-
+  if (wrongWire == 1) {
+    counterTime = 100;
+  } else if (wrongWire == 2) {
+    counterTime = 50;
+  } else {
+    counterTime = ONE_SECOND;
   }
 }
 
@@ -184,11 +219,11 @@ int checkWrongWire(int port, int wire) {
 }
 
 void generateWiresSelected() {
-  randomSeed(digitalRead(A5));
-  wire1Selected = random(4);
+  randomSeed(selectedCounter + millis());
+  wire1Selected = random(0, 4);
   wire2Selected = wire1Selected;
   while (wire2Selected == wire1Selected) {
-    wire2Selected = random(4);
+    wire2Selected = random(0, 4);
   }
 
   if (DEBUG) {
@@ -200,12 +235,29 @@ void generateWiresSelected() {
 
 // PASS
 
+void bombSolved() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("BOMBA");
+  lcd.setCursor(0, 1);
+  lcd.print("DESARMADA!!!");
+}
+
+void bombExploded() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("PERDERAM.");
+  lcd.setCursor(0, 1);
+  lcd.print("EXPLODIU!!!");
+}
+
 void finishTimer() {
   passPosition++;
 
   isRunning = false;
 
   digitalWrite(BUZZER_PIN, HIGH);
+  digitalWrite(SUPER_BUZZER_PIN, HIGH);
 }
 
 boolean isFinished() {
@@ -214,7 +266,7 @@ boolean isFinished() {
 
 boolean isPasswordCorrect() {
   for (int i = 0; i < PASS_SIZE; i++) {
-    if (RIGHT_PASS[i] != pass[i]) {
+    if (rightPass[i] != pass[i]) {
       return false;
     }
   }
